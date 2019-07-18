@@ -16,26 +16,38 @@ characters <- lapply(servers, fromJSON)
 #' @return The build name as a character vector
 determine_build <- function(char) {
   stopifnot(is.list(char$a))
-
+  
   if (
-    char$a$strength$creation == 100 &&
-    char$sk$melee_defense$training != "Untrained") {
+    (
+      char$a$strength$creation == 100 &&
+      (
+        char$sk$heavy_weapons$training == "Specialized" ||
+        char$sk$light_weapons$training == "Specialized" ||
+        char$sk$two_handed_combat$training == "Specialized"
+      )
+    ) ||
+    (
+      char$a$coordination$creation == 100 &&
+      char$sk$finesse_weapons$training == "Specialized" &&
+      char$sk$missile_weapons$training != "Specialized"
+    ) 
+  ) {
     return("MELEE")
   } else if (
     char$a$focus$creation == 100 &&
     char$a$self$creation == 100 &&
     (
-      char$sk$war_magic$training != "Untrained" ||
-      char$sk$void_magic != "Untrained"
+      char$sk$war_magic$training == "Specialized" ||
+      char$sk$void_magic$training == "Specialized"
     )
   ) {
-    return("MAGE")
+    return("MAGIC")
   } else if (
     char$a$coordination$creation == 100 &&
     char$a$self$creation < 100 &&
     char$sk$missile_weapons$training == "Specialized"
   ) {
-    return("ARCHER")
+    return("MISSILE")
   } else {
     return(NA)
   }
@@ -47,11 +59,12 @@ char_rows <- lapply(characters, function(char) {
   if (!is.list(char$a)) {
     return(data.frame())
   }
-
+  
   tryCatch({
     data.frame(name = char$n,
                server = char$s,
                level = char$l,
+               ntitles = length(char$ti),
                build = determine_build(char),
                strength_creation = char$a$strength$creation,
                endurance_creation = char$a$endurance$creation,
@@ -86,7 +99,7 @@ char_rows <- lapply(characters, function(char) {
                stringsAsFactors = FALSE)
   },
   error = function(e) {
-    warning(e)
+    warning(char$s, "-", char$n, ": ", e)
     
     return(data.frame())
   })
@@ -99,6 +112,10 @@ char_df <- do.call(rbind, char_rows)
 char_df <- char_df %>%
   filter(level> 10)
 
+# Pre-clean: Remove all characters with only one title
+char_df <- char_df %>% 
+  filter(ntitles > 1)
+
 # Calculate Zarto's numbers
 stats_df <- char_df %>%
   group_by(build, level) %>% 
@@ -108,13 +125,13 @@ stats_df <- char_df %>%
       mean = ~ round(mean(.)),
       min = ~ min(.),
       max = ~ max(.)))
-      
+
 # Add in sample sizes
 stats_df <- char_df %>% 
   group_by(build, level) %>% 
   summarise(n = n()) %>% 
   left_join(stats_df)
-    
+
 # Plot for fun
 char_df %>%
   group_by(level, build, melee_defense_training) %>%
